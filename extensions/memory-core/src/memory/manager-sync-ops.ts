@@ -264,11 +264,19 @@ export abstract class MemoryManagerSyncOps {
     options: { source: MemorySource; content?: string },
   ): Promise<void>;
 
+  protected hasIndexedChunks(): boolean {
+    const row = this.db.prepare(`SELECT 1 as found FROM chunks LIMIT 1`).get() as
+      | { found?: number }
+      | undefined;
+    return row?.found === 1;
+  }
+
   protected resolveCurrentIndexIdentityState(params?: {
     meta?: MemoryIndexMeta | null;
     provider?: { id: string; model: string } | null;
     providerKeyKnown?: boolean;
     vectorReady?: boolean;
+    hasIndexedChunks?: boolean;
   }): MemoryIndexIdentityState {
     const hasProviderOverride = params && "provider" in params;
     const configuredProvider =
@@ -307,6 +315,10 @@ export abstract class MemoryManagerSyncOps {
       chunkTokens: this.settings.chunking.tokens,
       chunkOverlap: this.settings.chunking.overlap,
       vectorReady,
+      hasIndexedChunks:
+        params && "hasIndexedChunks" in params
+          ? Boolean(params.hasIndexedChunks)
+          : this.hasIndexedChunks(),
       ftsTokenizer: this.settings.store.fts.tokenizer,
     });
   }
@@ -1499,6 +1511,7 @@ export abstract class MemoryManagerSyncOps {
       chunkTokens: this.settings.chunking.tokens,
       chunkOverlap: this.settings.chunking.overlap,
       vectorReady,
+      hasIndexedChunks: this.hasIndexedChunks(),
       ftsTokenizer: this.settings.store.fts.tokenizer,
     });
     const needsFullReindex =
