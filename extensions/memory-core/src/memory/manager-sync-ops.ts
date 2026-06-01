@@ -271,20 +271,6 @@ export abstract class MemoryManagerSyncOps {
     return row?.found === 1;
   }
 
-  protected backfillChunkIdentityFromMeta(meta: MemoryIndexMeta | null): void {
-    if (!meta) {
-      return;
-    }
-    this.db
-      .prepare(
-        `UPDATE chunks
-            SET provider = ?, provider_key = ?
-          WHERE (provider = 'unknown' OR provider IS NULL)
-            AND model = ?`,
-      )
-      .run(meta.provider, meta.providerKey ?? "", meta.model);
-  }
-
   protected resolveCurrentIndexIdentityState(params?: {
     meta?: MemoryIndexMeta | null;
     provider?: { id: string; model: string } | null;
@@ -1286,7 +1272,6 @@ export abstract class MemoryManagerSyncOps {
 
   private async syncSessionFiles(params: {
     needsFullReindex: boolean;
-    reindexUnchanged?: boolean;
     targetSessionFiles?: string[];
     progress?: MemorySyncProgressState;
   }) {
@@ -1374,7 +1359,7 @@ export abstract class MemoryManagerSyncOps {
           path: entry.path,
           existingHashes,
         });
-        if (!params.needsFullReindex && !params.reindexUnchanged && existingHash === entry.hash) {
+        if (!params.needsFullReindex && existingHash === entry.hash) {
           if (params.progress) {
             params.progress.completed += 1;
             params.progress.report({
@@ -1503,7 +1488,6 @@ export abstract class MemoryManagerSyncOps {
     }
     const vectorReady = await this.ensureVectorReady();
     const meta = this.readMeta();
-    this.backfillChunkIdentityFromMeta(meta);
     const targetSessionFiles = this.normalizeTargetSessionFiles(params?.sessionFiles);
     const hasTargetSessionFiles = targetSessionFiles !== null;
     if (params?.reason === "cli" && !params.force && !hasTargetSessionFiles) {
@@ -1532,14 +1516,18 @@ export abstract class MemoryManagerSyncOps {
     });
     const hasIndexedChunks = this.hasIndexedChunks();
     const needsInitialIndex = indexIdentity.status !== "valid" && !hasIndexedChunks;
-    const needsFullReindex = (params?.force && !hasTargetSessionFiles) || needsInitialIndex;
+    const needsExplicitIdentityReindex =
+      params?.reason === "cli" && indexIdentity.status !== "valid" && !hasTargetSessionFiles;
+    const needsFullReindex =
+      (params?.force && !hasTargetSessionFiles) ||
+      needsInitialIndex ||
+      needsExplicitIdentityReindex;
     if (!needsFullReindex) {
       const targetedSessionSync = await runMemoryTargetedSessionSync({
         hasSessionSource: this.sources.has("sessions"),
         targetSessionFiles,
         reason: params?.reason,
         progress: progress ?? undefined,
-        reindexUnchanged: indexIdentity.status !== "valid",
         sessionsDirtyFiles: this.sessionsDirtyFiles,
         syncSessionFiles: async (targetedParams) => {
           await this.syncSessionFiles(targetedParams);
